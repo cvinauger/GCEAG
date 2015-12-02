@@ -1,2 +1,2 @@
 # GCEAG
-R script for GC EAG experiment analysis
+R script that contains tools I used for GC EAG experiments
