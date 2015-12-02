@@ -1,0 +1,153 @@
+# R script to analyse GC-EAG data recorded with WinEDR, filtered and exported as .txt
+
+library(graphics)
+library(signal)
+library(stats)
+library(grDevices)
+library(zoo)
+
+setwd("")       # If the working directory needs to be changed
+getwd()
+rm(list=ls())   # use this command to erase current variables 
+
+ # Lowpass filter and peak detection function #######################################
+ 
+lowpass = butter(2, 0.02, type = "low", plane='z')  # reduced w, the Nyquist frequency
+argmax <- function(x, y, w=1, ...) {
+  require(zoo)
+  n <- length(y)
+  y.smooth <- loess(y ~ x, ...)$fitted
+  y.max <- rollapply(zoo(y.smooth), 2*w+1, max, align="center")
+  delta <- y.max - y.smooth[-c(1:w, n+1-1:w)]
+  i.max <- which(delta <= 0) + w
+  list(x=x[i.max], i=i.max, y.hat=y.smooth)
+}
+supervise <- function(w, span) 
+  {  peaks <- argmax(x, y, w=w, span=span)
+
+  plot(x, y, cex=0.75, col="Gray", main=paste("w = ", w, ", span = ", span, sep=""))
+  lines(x, peaks$y.hat,  lwd=2) 
+  y.min <- min(y)
+  sapply(peaks$i, function(i) lines(c(x[i],x[i]), c(y.min, peaks$y.hat[i]),
+         col="Red", lty=2))
+  points(x[peaks$i], peaks$y.hat[peaks$i], col="Red", pch=19, cex=1.25)
+  text(x[peaks$i], peaks$y.hat[peaks$i])  }
+
+ # Open files  ###############################################################
+
+filename = "type_the_name_of_your_file_here.txt" 
+ 
+Mosq <- read.table(filename,header=F,sep="\t") 				# open file
+colnames(Mosq) <- c("Time","EAG", "GC","EAGfiltered")	# make sure your txt file is organized this way, otherwise change here!!          
+corrGC <-filter(lowpass, Mosq$GC)											#filter GC signal		
+
+# Select ROI  ###############################################################
+
+plot(Mosq$Time, corrGC, type="l")
+gcstart <-8900			        	# determine time window over which peaks occur 
+gcend <- gcstart+ 20800				# sampled @ 20Hz. 20 units -> 1 second
+
+plot(Mosq$Time[gcstart: gcend], corrGC[gcstart: gcend], type="l") # double check
+
+
+#  peak detection parameters   ##################################################
+
+x <- Mosq$Time[gcstart: gcend]		
+y <- corrGC[gcstart: gcend]
+z <- Mosq$EAG[gcstart: gcend]
+par(mfrow=c(3,1))					# sometimes, it is useful to plot multiple values of w and span to compare them
+supervise(300, 0.02)	 		# play with "w" and "span" (supervise(w,span)) to detect ideal peaks
+supervise(100, 0.015)			# w reflects the window of integration to detect peaks 
+supervise(150, 0.01)			# span is used to smooth the trace and ignore some peaks
+
+peaks <- argmax(x, y, w=300, span= 0.02)	#use values from above
+onset <- peaks$i
+b <- length(onset)
+b
+
+# sampled @ 20Hz. 20 units -> 1 second
+bf = 20				# time before the the onset of the pulse 
+af = 200			# time after the the onset of the pulse 
+
+before <- onset - (bf-1)		
+after <- onset + af
+a <- bf
+c <- a+af
+
+
+
+
+## Average responses #################################################
+
+	# Response to peak, centered around zero	
+	
+baseline <- matrix(0,a,length(onset))	
+for (i in 1:b)
+{
+	baseline[,i] <- z[before[i]:onset[i]] 
+}
+baseline <- apply(baseline,2,mean)     
+
+peakResp <- matrix(0,c,length(onset))	
+for (i in 1:b)
+{
+	peakResp[,i] <- z[before[i]:after[i]]-baseline[i] 
+}
+
+	# GC signal for each peak	
+
+peakStim <- matrix(0,c,length(onset))	
+for (i in 1:b)
+{
+	peakStim[,i] <- y[before[i]:after[i]] - 100
+}
+
+
+
+##  responses to each pulse and plot  ######################################
+# Responses to each pulse are stored in the columns of the "Resp" matrix. Same for Stim.
+Resp <- matrix(0, c, b)
+for (i in 1:b)
+{
+	Resp[,i] <- peakResp[,i]
+}
+
+Stim <- matrix(0, c, b)
+for (i in 1:b)
+{
+	Stim[,i] <- peakStim[,i]
+}
+
+
+
+
+# plot resp and stim on same figure.
+title <- rep(0, b)
+for (i in 1:b)	
+{
+  title[i] <-paste("peak", i, sep="")
+}
+dev.new()
+pdf(file = "type_name_of_your_insect_here_resp.pdf", paper= "USr", width=14)
+par(mfrow=c(2,5))
+for (i in 1:length(onset))					# change these values to plot other peaks
+{
+	plot(Stim[,i] , type="l", xlab = "", col="red", ylim=c(-40,40), main=paste(title[i]))
+	abline(v=bf, col="blue", lty=2)
+	par(new=T)
+	plot(Resp[,i] , type="l", axes=F, xlab = NA, ylab=NA, ylim=c(-60,60))
+	axis(side = 4)
+}
+dev.off()   
+
+##### Export data as .Rda #############################################
+# Change names to match the insects's file "name"
+name_Resp <- Resp
+name_Stim <- Stim
+save(name_Resp, file="name_Resp.Rda")
+save(name_Stim, file="name_Stim.Rda")
+
+dev.new()
+pdf(file = "name_GC.pdf")
+supervise(300, 0.02) 				# if you change w and span above, change here too!	
+dev.off()             
