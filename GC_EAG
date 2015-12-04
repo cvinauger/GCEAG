@@ -43,10 +43,10 @@ corrGC <-filter(lowpass, Mosq$GC)											#filter GC signal
 
 # Select ROI  ###############################################################
 
+par(mfrow=c(2,1))
 plot(Mosq$Time, corrGC, type="l")
 gcstart <-8900			        	# determine time window over which peaks occur 
 gcend <- gcstart+ 20800				# sampled @ 20Hz. 20 units -> 1 second
-
 plot(Mosq$Time[gcstart: gcend], corrGC[gcstart: gcend], type="l") # double check
 
 
